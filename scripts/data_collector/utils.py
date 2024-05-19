@@ -1,6 +1,6 @@
 #  Copyright (c) Microsoft Corporation.
 #  Licensed under the MIT License.
-
+import os
 import re
 import copy
 import importlib
@@ -12,7 +12,7 @@ import requests
 import functools
 from pathlib import Path
 from typing import Iterable, Tuple, List
-
+import tushare as ts
 import numpy as np
 import pandas as pd
 from lxml import etree
@@ -50,7 +50,7 @@ _EN_FUND_SYMBOLS = None
 _CALENDAR_MAP = {}
 
 # NOTE: Until 2020-10-20 20:00:00
-MINIMUM_SYMBOLS_NUM = 3900
+MINIMUM_SYMBOLS_NUM = 100
 
 
 def get_calendar_list(bench_code="CSI300") -> List[pd.Timestamp]:
@@ -190,17 +190,63 @@ def get_hs_stock_symbols() -> list:
     global _HS_SYMBOLS  # pylint: disable=W0603
 
     def _get_symbol():
-        _res = set()
-        for _k, _v in (("ha", "ss"), ("sa", "sz"), ("gem", "sz")):
-            resp = requests.get(HS_SYMBOLS_URL.format(s_type=_k), timeout=None)
-            _res |= set(
-                map(
-                    lambda x: "{}.{}".format(re.findall(r"\d+", x)[0], _v),  # pylint: disable=W0640
-                    etree.HTML(resp.text).xpath("//div[@class='result']/ul//li/a/text()"),  # pylint: disable=I1101
-                )
-            )
-            time.sleep(3)
-        return _res
+        # _res = set()
+        # for _k, _v in (("ha", "ss"), ("sa", "sz"), ("gem", "sz")):
+        #     resp = requests.get(HS_SYMBOLS_URL.format(s_type=_k), timeout=None)
+        #     _res |= set(
+        #         map(
+        #             lambda x: "{}.{}".format(re.findall(r"\d+", x)[0], _v),  # pylint: disable=W0640
+        #             etree.HTML(resp.text).xpath("//div[@class='result']/ul//li/a/text()"),  # pylint: disable=I1101
+        #         )
+        #     )
+        #     time.sleep(3)
+        max_tries = 5
+        for _ in range(max_tries):
+            try:
+                url = "http://99.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&po=1&np=1&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048&fields=f12"
+                resp = requests.get(url, timeout=30)
+                if resp.status_code != 200:
+                    raise ValueError("request error")
+                break
+            except:
+                logger.warning("Request error, retry after 30s")
+                time.sleep(30)
+                continue
+
+        else:
+            raise ValueError("Failed! Request error for 5 times.")
+            
+        try:
+            _symbols = [_v["f12"] for _v in resp.json()["data"]["diff"]]
+        except Exception as e:
+            logger.warning(f"request error: {e}")
+            raise
+
+        # if len(_symbols) < 3900:
+        #     raise ValueError("request error")
+        def eastmoney2yahoo_format(s_):
+            if s_[0] == '6':
+                s_ = s_ + '.SS'
+            elif s_[0] in ['0', '3']:
+                s_ = s_ + '.SZ'
+            else:
+                raise ValueError(f"unknown symbol: {s_}")
+            return s_
+        # if not os.path.exists('~/.qlib/tushare_data/market.csv'):
+        #     pro = ts.pro_api('1297a4cab56ebe81ae57001bf43899a7cdda799f869d2f4ae6176591')
+        #     # 拉取数据
+        #     df = pro.stock_basic(exchange='', list_status='L',fields='ts_code,symbol,name,area,industry,list_date')
+        #     print('num of stocks:', len(df))
+        #     df.to_csv('~/.qlib/tushare_data/market.csv')
+        # else:
+        #     df = pd.read_csv('~/.qlib/tushare_data/market.csv')
+
+        # _symbols = df['symbol'].tolist()
+        # print('pre', len(_symbols))
+        _symbols = [eastmoney2yahoo_format(str(s_)) for s_ in _symbols if str(s_)[0] in ['6', '0', '3']]
+        # print('post', len(_symbols))
+
+        return set(_symbols)
 
     if _HS_SYMBOLS is None:
         symbols = set()
@@ -208,6 +254,7 @@ def get_hs_stock_symbols() -> list:
         # It may take multiple times to get the complete
         while len(symbols) < MINIMUM_SYMBOLS_NUM:
             symbols |= _get_symbol()
+            print(symbols)
             time.sleep(3)
 
         symbol_cache_path = Path("~/.cache/hs_symbols_cache.pkl").expanduser().resolve()

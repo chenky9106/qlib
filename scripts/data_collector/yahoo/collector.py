@@ -99,6 +99,8 @@ class YahooCollector(BaseCollector):
 
     def init_datetime(self):
         if self.interval == self.INTERVAL_1min:
+            print(self.start_datetime, type(self.start_datetime))
+            print(self.DEFAULT_START_DATETIME_1MIN, type(self.DEFAULT_START_DATETIME_1MIN))
             self.start_datetime = max(self.start_datetime, self.DEFAULT_START_DATETIME_1MIN)
         elif self.interval == self.INTERVAL_1d:
             pass
@@ -125,7 +127,7 @@ class YahooCollector(BaseCollector):
     @staticmethod
     def get_data_from_remote(symbol, interval, start, end, show_1min_logging: bool = False):
         error_msg = f"{symbol}-{interval}-{start}-{end}"
-
+  
         def _show_logging_func():
             if interval == YahooCollector.INTERVAL_1min and show_1min_logging:
                 logger.warning(f"{error_msg}:{_resp}")
@@ -152,6 +154,7 @@ class YahooCollector(BaseCollector):
     def get_data(
         self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp
     ) -> pd.DataFrame:
+        print(symbol)
         @deco_retry(retry_sleep=self.delay, retry=self.retry)
         def _get_simple(start_, end_):
             self.sleep()
@@ -210,8 +213,17 @@ class YahooCollectorCN(YahooCollector, ABC):
         return symbols
 
     def normalize_symbol(self, symbol):
-        symbol_s = symbol.split(".")
-        symbol = f"sh{symbol_s[0]}" if symbol_s[-1] == "ss" else f"sz{symbol_s[0]}"
+        if symbol.startswith('6'):
+            exchange = 'sh'
+        elif symbol.startswith('0') or symbol.startswith('3'):
+            exchange = 'sz'
+        else:
+            exchange = 'bj'
+            
+        symbol = f"{exchange}{symbol}"
+        
+        # symbol_s = symbol.split(".")
+        # symbol = f"sh{symbol_s[0]}" if symbol_s[-1] == "ss" else f"sz{symbol_s[0]}"
         return symbol
 
     @property
